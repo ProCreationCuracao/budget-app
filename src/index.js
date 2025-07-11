@@ -1,12 +1,20 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import App from './App';
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { ChakraProvider } from "@chakra-ui/react";
+import theme from "./theme";
+import App from "./App";
+<link
+  href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+  rel="stylesheet"
+/>
 
-// Create React root and render
-const container = document.getElementById('root');
-const root = ReactDOM.createRoot(container);
+
+const container = document.getElementById("root");
+const root = createRoot(container);
+
+
 root.render(
-  <React.StrictMode>
+  <ChakraProvider theme={theme}>
     <App />
-  </React.StrictMode>
+  </ChakraProvider>
 );

@@ -1,92 +1,171 @@
 // src/Transactions.js
 import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Heading,
+  FormControl,
+  FormLabel,
+  Input,
+  Select,
+  Button,
+  VStack,
+  HStack,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td
+} from '@chakra-ui/react';
 
 export default function Transactions({ user }) {
   const [txns, setTxns] = useState([]);
-  const [form, setForm] = useState({
-    date: '',
-    amount: '',
-    description: '',
-    category: ''
-  });
+  const [description, setDescription] = useState('');
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [date, setDate] = useState('');
+  const [goals, setGoals] = useState([]);
+  const [selectedGoal, setSelectedGoal] = useState('');
 
-  // Fetch transactions for this user
   useEffect(() => {
-    async function load() {
-      const res = await fetch('/.netlify/functions/get-transactions');
-      const data = await res.json();
-      setTxns(data.filter(t => t.user_id === user.id));
-    }
-    load();
+    // load transactions
+    fetch('/.netlify/functions/get-transactions')
+      .then(res => res.json())
+      .then(data => {
+        setTxns(data.filter(t => t.user_id === user.id));
+      })
+      .catch(console.error);
+
+    // load goals for tagging
+    fetch('/.netlify/functions/get-goals')
+      .then(res => res.json())
+      .then(data => {
+        setGoals(data.filter(g => g.user_id === user.id));
+      })
+      .catch(console.error);
   }, [user.id]);
 
-  // Add a new transaction
-  const addTxn = async e => {
+  const addTransaction = async (e) => {
     e.preventDefault();
     await fetch('/.netlify/functions/create-transaction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, user_id: user.id })
+      body: JSON.stringify({
+        user_id:    user.id,
+        description,
+        amount:     parseFloat(amount),
+        category,
+        date,
+        goal_id:    selectedGoal || null
+      }),
     });
-    setForm({ date: '', amount: '', description: '', category: '' });
-    // re-fetch
-    const res = await fetch('/.netlify/functions/get-transactions');
-    const data = await res.json();
-    setTxns(data.filter(t => t.user_id === user.id));
+    // clear form
+    setDescription('');
+    setAmount('');
+    setCategory('');
+    setDate('');
+    setSelectedGoal('');
+    // refresh lists
+    const [txnRes, goalRes] = await Promise.all([
+      fetch('/.netlify/functions/get-transactions'),
+      fetch('/.netlify/functions/get-goals')
+    ]);
+    const txnData = await txnRes.json();
+    const goalData = await goalRes.json();
+    setTxns(txnData.filter(t => t.user_id === user.id));
+    setGoals(goalData.filter(g => g.user_id === user.id));
   };
 
   return (
-    <div style={{ maxWidth: 600, margin: '1rem auto' }}>
-      <h2>Your Transactions</h2>
-      <form onSubmit={addTxn} style={{ display: 'grid', gap: '.5rem' }}>
-        <input
-          type="date"
-          value={form.date}
-          onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-          required
-        />
-        <input
-          type="number"
-          step="0.01"
-          placeholder="Amount"
-          value={form.amount}
-          onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-          required
-        />
-        <input
-          type="text"
-          placeholder="Description"
-          value={form.description}
-          onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-          required
-        />
-        <input
-          type="text"
-          placeholder="Category"
-          value={form.category}
-          onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-          required
-        />
-        <button type="submit">Add Transaction</button>
-      </form>
+    <Box>
+      <Heading mb={4}>Your Transactions</Heading>
 
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '1rem' }}>
-        <thead>
-          <tr>
-            <th>Date</th><th>Amt</th><th>Desc</th><th>Cat</th>
-          </tr>
-        </thead>
-        <tbody>
+      {/* Add Transaction Form */}
+      <Box as="form" onSubmit={addTransaction} mb={6}>
+        <VStack spacing={4} align="start">
+          <FormControl>
+            <FormLabel>Description</FormLabel>
+            <Input
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              required
+            />
+          </FormControl>
+
+          <HStack spacing={4} w="100%">
+            <FormControl>
+              <FormLabel>Amount</FormLabel>
+              <Input
+                type="number"
+                step="0.01"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                required
+              />
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Category</FormLabel>
+              <Input
+                value={category}
+                onChange={e => setCategory(e.target.value)}
+                required
+              />
+            </FormControl>
+
+            <FormControl>
+              <FormLabel>Date</FormLabel>
+              <Input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                required
+              />
+            </FormControl>
+          </HStack>
+
+          <FormControl>
+            <FormLabel>Tag to Goal (optional)</FormLabel>
+            <Select
+              placeholder="Select Goal"
+              value={selectedGoal}
+              onChange={e => setSelectedGoal(e.target.value)}
+            >
+              {goals.map(g => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </Select>
+          </FormControl>
+
+          <Button type="submit" colorScheme="blue">Add Transaction</Button>
+        </VStack>
+      </Box>
+
+      {/* Transactions Table */}
+      <Table variant="simple">
+        <Thead>
+          <Tr>
+            <Th>Date</Th>
+            <Th>Description</Th>
+            <Th>Category</Th>
+            <Th isNumeric>Amount</Th>
+            <Th>Goal</Th>
+          </Tr>
+        </Thead>
+        <Tbody>
           {txns.map(t => (
-            <tr key={t.id}>
-              <td>{t.date}</td>
-              <td>{parseFloat(t.amount).toFixed(2)}</td>
-              <td>{t.description}</td>
-              <td>{t.category}</td>
-            </tr>
+            <Tr key={t.id}>
+              <Td>{t.date}</Td>
+              <Td>{t.description}</Td>
+              <Td>{t.category}</Td>
+              <Td isNumeric>${parseFloat(t.amount).toFixed(2)}</Td>
+              <Td>{goals.find(g => g.id === t.goal_id)?.name || '-'}</Td>
+            </Tr>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </Tbody>
+      </Table>
+    </Box>
   );
 }

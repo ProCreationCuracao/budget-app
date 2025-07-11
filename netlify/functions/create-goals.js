@@ -4,8 +4,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-exports.handler = async () => {
-  const { data, error } = await supabase.from('transactions').select('*');
+exports.handler = async ({ body }) => {
+  const { user_id, name, target_amount } = JSON.parse(body);
+  const { data, error } = await supabase
+    .from('goals')
+    .insert({ user_id, name, target_amount });
   if (error) {
     return { statusCode: 500, body: JSON.stringify({ error }) };
   }

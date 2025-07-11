@@ -5,9 +5,9 @@ const supabase = createClient(
 );
 
 exports.handler = async () => {
-  const { data, error } = await supabase.from('transactions').select('*');
+  const { data, error } = await supabase.from('budgets').select('*');
   if (error) {
-    return { statusCode: 500, body: JSON.stringify({ error }) };
+    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
   }
   return { statusCode: 200, body: JSON.stringify(data) };
 };
