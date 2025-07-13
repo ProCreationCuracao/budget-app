@@ -1,184 +1,273 @@
+// src/components/Dashboard.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Grid,
   Heading,
-  Button,
+  HStack,
   VStack,
   Text,
-  useColorModeValue
+  Select,
+  useToast,
+  useColorModeValue,
 } from '@chakra-ui/react';
-import {
-  AiFillBell,
-  AiFillInfoCircle,
-  AiOutlineBarChart,
-  AiFillDollarCircle,
-  AiOutlinePieChart,
-  AiOutlineSetting,
-  AiOutlineGroup,
-  AiOutlinePlus
-} from 'react-icons/ai';
+import { Responsive, WidthProvider } from 'react-grid-layout';
 import {
   LineChart,
   Line,
   XAxis,
   YAxis,
   Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  PieChart as RePieChart,
+  PieChart,
   Pie,
-  Cell
+  Cell,
+  Legend,
 } from 'recharts';
+import { supabase } from '../supabaseClient';
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
 
-// placeholder color palette matching your logo/theme
-const COLORS = ['#3182CE', '#D53F8C', '#ECC94B', '#805AD5', '#4FD1C5'];
 
-export default function Dashboard({ user, accounts = [], transactions = [], categories = [], goals = [], sharedGoals = [] }) {
-  const cardBg = useColorModeValue('white', 'gray.700');
+const ResponsiveGridLayout = WidthProvider(Responsive);
 
-  // TODO: replace with real fetching logic
-  const [cashFlowData, setCashFlowData] = useState([]);
+export default function Dashboard() {
+  const toast = useToast();
 
+  // Date‐range state
+  const [range, setRange] = useState('monthly');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState(new Date().toISOString());
+
+  // Data state
+  const [transactions, setTransactions] = useState([]);
+
+  // Widget visibility
+  const [widgets, setWidgets] = useState({
+    summary: true,
+    trend: true,
+    categories: true,
+    recent: true,
+  });
+
+  // Recompute startDate whenever range changes
   useEffect(() => {
-    // simulate fetch
-    setCashFlowData([
-      { date: 'Day 1', balance: 1200 },
-      { date: 'Day 5', balance: 900 },
-      { date: 'Day 10', balance: 1500 },
-      { date: 'Day 15', balance: 1300 },
-      { date: 'Day 20', balance: 1700 },
-      { date: 'Day 25', balance: 1600 },
-    ]);
-  }, []);
+    const now = new Date();
+    let start;
+    switch (range) {
+      case 'daily':
+        start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        break;
+      case 'weekly':
+        start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'yearly':
+        start = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+        break;
+      case 'monthly':
+      default:
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+    setStartDate(start.toISOString());
+  }, [range]);
 
-  const onQuickAdd = () => {
-    // open quick-add modal
-    console.log('Quick Add opening...');
+  // Load data whenever date‐window changes
+  useEffect(() => {
+    async function load() {
+      try {
+        // get logged‐in user
+        const {
+          data: { user },
+          error: userErr,
+        } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+        // fetch transactions in window
+        const { data, error: txErr } = await supabase
+          .from('transactions')
+          .select('id, amount, transaction_type, category, created_at')
+          .eq('user_id', user.id)
+          .gte('created_at', startDate)
+          .lte('created_at', endDate);
+        if (txErr) throw txErr;
+        setTransactions(data || []);
+      } catch (err) {
+        console.error('Error loading dashboard:', err);
+        console.error('Full error:', JSON.stringify(err, null, 2));
+        toast({
+          title: 'Failed to load data',
+          description: err.message ?? 'Unknown error',
+          status: 'error',
+          duration: 5000,
+          isClosable: true,
+        });
+      }
+    }
+    load();
+  }, [startDate, endDate, toast]);
+
+  // prepare summary numbers
+  const income = transactions
+    .filter((t) => t.transaction_type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+  const expense = transactions
+    .filter((t) => t.transaction_type === 'expense')
+    .reduce((sum, t) => sum + t.amount, 0);
+  const net = income - expense;
+
+  // prepare trend data grouping by day
+  const trendData = Object.entries(
+    transactions.reduce((acc, t) => {
+      const day = t.created_at.slice(0, 10);
+      acc[day] = (acc[day] || 0) + (t.transaction_type === 'income' ? t.amount : -t.amount);
+      return acc;
+    }, {})
+  )
+    .sort(([a], [b]) => (a > b ? 1 : -1))
+    .map(([date, value]) => ({ date, value }));
+
+  // prepare category pie
+  const categoryMap = transactions.reduce((acc, t) => {
+    acc[t.category] = (acc[t.category] || 0) + (t.transaction_type === 'expense' ? t.amount : 0);
+    return acc;
+  }, {});
+  const categoryData = Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
+
+  // recent 5
+  const recent = [...transactions]
+    .sort((a, b) => (a.created_at > b.created_at ? -1 : 1))
+    .slice(0, 5);
+
+  // grid layout
+  const layouts = {
+    lg: [
+      { i: 'summary', x: 0, y: 0, w: 3, h: 1 },
+      { i: 'trend', x: 3, y: 0, w: 9, h: 3 },
+      { i: 'categories', x: 0, y: 1, w: 6, h: 3 },
+      { i: 'recent', x: 6, y: 1, w: 6, h: 3 },
+    ],
   };
 
+  const bg = useColorModeValue('white', 'gray.700');
+  const border = useColorModeValue('gray.200', 'gray.600');
+
   return (
-    <Box p={6}>
-      <Heading mb={4}>Dashboard</Heading>
-      <Grid templateColumns={{ base: '1fr', md: '1fr 1fr', lg: 'repeat(3,1fr)' }} gap={6}>
+    <Box p={4}>
+      <HStack mb={4} justify="space-between">
+        <Heading size="lg">Dashboard</Heading>
+        <Select w="150px" value={range} onChange={(e) => setRange(e.target.value)}>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+        </Select>
+      </HStack>
 
-        {/* 1. Alerts & Reminders */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <VStack align="start">
-            <Heading size="sm">
-              <AiFillBell style={{ display: 'inline', marginRight: 8 }} />
-              Alerts & Reminders
-            </Heading>
-            {goals.length === 0
-              ? <Text>No upcoming reminders.</Text>
-              : goals.map(g => <Text key={g.id}>{g.name}: due soon</Text>)
-            }
-            <Button size="sm" leftIcon={<AiOutlinePlus />}>Add Reminder</Button>
-          </VStack>
-        </Box>
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={layouts}
+        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480 }}
+        cols={{ lg: 12, md: 10, sm: 6, xs: 4 }}
+        rowHeight={80}
+        isResizable
+        isDraggable
+      >
+        {widgets.summary && (
+          <Box
+            key="summary"
+            bg={bg}
+            border="1px"
+            borderColor={border}
+            borderRadius="md"
+            p={4}
+          >
+            <VStack spacing={2} align="stretch">
+              <Text fontWeight="bold">Income</Text>
+              <Text>${income.toFixed(2)}</Text>
+              <Text fontWeight="bold">Expenses</Text>
+              <Text>${expense.toFixed(2)}</Text>
+              <Text fontWeight="bold">Net</Text>
+              <Text>${net.toFixed(2)}</Text>
+            </VStack>
+          </Box>
+        )}
 
-        {/* 2. Smart Insights */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <VStack align="start">
-            <Heading size="sm">
-              <AiFillInfoCircle style={{ display: 'inline', marginRight: 8 }} />
-              Smart Insights
-            </Heading>
-            <Text>You've spent 20% more on dining this month vs last.</Text>
-            <Text fontSize="xs" color="gray.500">Based on your expenses</Text>
-          </VStack>
-        </Box>
-
-        {/* 3. Cash-Flow Forecast */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <Heading size="sm">
-            <AiOutlineBarChart style={{ display: 'inline', marginRight: 8 }} />
-            Cash-Flow Forecast
-          </Heading>
-          <ResponsiveContainer width="100%" height={120}>
-            <LineChart data={cashFlowData}>
+        {widgets.trend && (
+          <Box
+            key="trend"
+            bg={bg}
+            border="1px"
+            borderColor={border}
+            borderRadius="md"
+            p={4}
+          >
+            <Text fontWeight="bold" mb={2}>
+              Balance Trend
+            </Text>
+            <LineChart width={800} height={200} data={trendData}>
               <XAxis dataKey="date" />
               <YAxis />
               <Tooltip />
-              <Line type="monotone" dataKey="balance" stroke="#3182CE" strokeWidth={2} />
+              <Line type="monotone" dataKey="value" stroke="#3182CE" />
             </LineChart>
-          </ResponsiveContainer>
-          <Button size="sm" mt={2}>Refresh</Button>
-        </Box>
+          </Box>
+        )}
 
-        {/* 4. Multi-Currency Accounts */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <Heading size="sm">
-            <AiFillDollarCircle style={{ display: 'inline', marginRight: 8 }} />
-            Accounts
-          </Heading>
-          {accounts.map(acc => (
-            <Text key={acc.id}>
-              {acc.name}: {acc.balance.toFixed(2)} {acc.currency}
+        {widgets.categories && (
+          <Box
+            key="categories"
+            bg={bg}
+            border="1px"
+            borderColor={border}
+            borderRadius="md"
+            p={4}
+          >
+            <Text fontWeight="bold" mb={2}>
+              Top Expense Categories
             </Text>
-          ))}
-          <Button size="sm" leftIcon={<AiOutlinePlus />} mt={2}>Add Account</Button>
-        </Box>
-
-        {/* 5. Category Drill-Down */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <Heading size="sm">
-            <AiOutlinePieChart style={{ display: 'inline', marginRight: 8 }} />
-            Top Categories
-          </Heading>
-          <ResponsiveContainer width="100%" height={120}>
-            <RePieChart>
-              <Pie data={categories} dataKey="value" nameKey="name" outerRadius={50} label>
-                {categories.map((entry, idx) => (
-                  <Cell key={`cell-${idx}`} fill={COLORS[idx % COLORS.length]} />
+            <PieChart width={400} height={200}>
+              <Pie
+                data={categoryData}
+                dataKey="value"
+                nameKey="name"
+                outerRadius={80}
+                label
+              >
+                {categoryData.map((_, idx) => (
+                  <Cell key={idx} fill={['#3182CE', '#D53F8C', '#ECC94B'][idx % 3]} />
                 ))}
               </Pie>
-              <Tooltip />
-            </RePieChart>
-          </ResponsiveContainer>
-          <Button size="sm" mt={2}>View All</Button>
-        </Box>
+              <Legend verticalAlign="bottom" height={36} />
+            </PieChart>
+          </Box>
+        )}
 
-        {/* 6. Customizable Widgets */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <Heading size="sm">
-            <AiOutlineSetting style={{ display: 'inline', marginRight: 8 }} />
-            Widgets
-          </Heading>
-          <Text>Drag to reorder your cards.</Text>
-        </Box>
-
-        {/* 7. Shared Goals/Collaborations */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <Heading size="sm">
-            <AiOutlineGroup style={{ display: 'inline', marginRight: 8 }} />
-            Shared Goals
-          </Heading>
-          {sharedGoals.length > 0 ? (
-            sharedGoals.map(g => (
-              <Text key={g.id}>{g.name}: {g.progress}%</Text>
-            ))
-          ) : (
-            <Text>No shared goals.</Text>
-          )}
-        </Box>
-
-        {/* 8. Quick Add Shortcut */}
-        <Box bg={cardBg} p={4} borderRadius="md" boxShadow="sm">
-          <Button
-            width="100%"
-            height="100px"
-            colorScheme="yellow"
-            fontSize="lg"
-            leftIcon={<AiOutlinePlus />}
-            onClick={onQuickAdd}
+        {widgets.recent && (
+          <Box
+            key="recent"
+            bg={bg}
+            border="1px"
+            borderColor={border}
+            borderRadius="md"
+            p={4}
           >
-            Quick Add
-          </Button>
-        </Box>
-
-      </Grid>
+            <Text fontWeight="bold" mb={2}>
+              Recent Transactions
+            </Text>
+            <VStack spacing={2} align="stretch">
+              {recent.map((t) => (
+                <HStack key={t.id} justify="space-between">
+                  <Text>{new Date(t.created_at).toLocaleDateString()}</Text>
+                  <Text>{t.category}</Text>
+                  <Text
+                    color={t.transaction_type === 'income' ? 'green.500' : 'red.500'}
+                  >
+                    {t.transaction_type === 'income' ? '+' : '-'}$
+                    {t.amount.toFixed(2)}
+                  </Text>
+                </HStack>
+              ))}
+            </VStack>
+          </Box>
+        )}
+      </ResponsiveGridLayout>
     </Box>
   );
 }

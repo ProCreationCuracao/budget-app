@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+// src/components/Transactions.jsx
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Heading,
@@ -8,42 +9,76 @@ import {
   Tr,
   Th,
   Td,
+  Text,
+  Spinner
 } from '@chakra-ui/react';
 
-export default function Transactions({ user }) {
-  const [txns, setTxns] = useState([]);
+export default function Transactions({ user, refreshTransactions }) {
+  const [transactions, setTransactions] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch('/.netlify/functions/get-transactions')
-      .then(r => r.json())
-      .then(arr => {
-        setTxns(arr.filter(t => t.user_id === user.id));
+    if (!user) return;
+
+    setLoading(true);
+    fetch('/.netlify/functions/get-transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: user.id })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setTransactions(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Error fetching transactions:', err);
+        setLoading(false);
       });
-  }, [user.id]);
+  }, [user, refreshTransactions]);
+
+  // guard unauthenticated
+
+
+  // loading state
+  if (loading || transactions === null) {
+    return (
+      <Box p={4} textAlign="center">
+        <Spinner size="lg" />
+      </Box>
+    );
+  }
 
   return (
-    <Box>
-      <Heading size="md" mb={4}>
-        All Transactions
-      </Heading>
-      <Table variant="simple">
-        <Thead>
-          <Tr>
-            <Th>Date</Th>
-            <Th>Description</Th>
-            <Th isNumeric>Amount</Th>
-          </Tr>
-        </Thead>
-        <Tbody>
-          {txns.map(t => (
-            <Tr key={t.id}>
-              <Td>{new Date(t.created_at).toLocaleDateString()}</Td>
-              <Td>{t.description}</Td>
-              <Td isNumeric>${t.amount.toFixed(2)}</Td>
+    <Box p={4}>
+      <Heading mb={4}>Recent Transactions</Heading>
+
+      {transactions.length === 0 ? (
+        <Text>No transactions yet.</Text>
+      ) : (
+        <Table variant="simple">
+          <Thead>
+            <Tr>
+              <Th>Date</Th>
+              <Th>Type</Th>
+              <Th isNumeric>Amount</Th>
+              <Th>Category</Th>
+              <Th>Description</Th>
             </Tr>
-          ))}
-        </Tbody>
-      </Table>
+          </Thead>
+          <Tbody>
+            {transactions.map(tx => (
+              <Tr key={tx.id}>
+                <Td>{new Date(tx.created_at).toLocaleDateString()}</Td>
+                <Td>{tx.transaction_type}</Td>
+                <Td isNumeric>${parseFloat(tx.amount).toFixed(2)}</Td>
+                <Td>{tx.category || '—'}</Td>
+                <Td>{tx.note || '—'}</Td>
+              </Tr>
+            ))}
+          </Tbody>
+        </Table>
+      )}
     </Box>
   );
 }

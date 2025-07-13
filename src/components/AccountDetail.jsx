@@ -1,85 +1,123 @@
-// src/components/AccountDetail.jsx
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { VStack, Box, Text, Button, HStack } from '@chakra-ui/react';
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Heading,
+  Button,
+  Text,
+  VStack,
+  HStack,
+  useToast,
+} from '@chakra-ui/react';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+} from 'recharts';
 import { supabase } from '../supabaseClient';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
-export default function AccountDetail() {
-  const { accountId } = useParams();
-  const navigate = useNavigate();
-  const [account, setAccount] = useState(null);
+export default function AccountDetail({ account, onBack }) {
+  const toast = useToast();
   const [transactions, setTransactions] = useState([]);
-  const [chartData, setChartData] = useState([]);
+  const [running, setRunning] = useState([]);
 
+  // load this account’s transactions
   useEffect(() => {
     async function load() {
-      // fetch account
-      let { data: acc } = await supabase
-        .from('accounts')
-        .select('*')
-        .eq('id', accountId)
-        .single();
-      setAccount(acc);
+      try {
+        const {
+          data: { user },
+          error: userErr,
+        } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
 
-      // fetch transactions
-      let { data: tx } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('account_id', accountId)
-        .order('date', { ascending: true });
-      setTransactions(tx);
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('id, amount, transaction_type, created_at')
+          .eq('user_id', user.id)
+          .eq('account_id', account.id)
+          .order('created_at', { ascending: true });
+        if (error) throw error;
 
-      // build running-balance chart
-      let balance = acc.opening_balance;
-      const d = tx.map(t => {
-        balance += t.amount;
-        return { date: t.date, balance };
-      });
-      setChartData(d);
+        setTransactions(data || []);
+
+        // build running balance over time
+        let bal = account.opening_balance;
+        const run = data.map((t) => {
+          bal += t.transaction_type === 'income' ? t.amount : -t.amount;
+          return {
+            date: t.created_at.slice(0, 10),
+            balance: bal,
+          };
+        });
+        setRunning(run);
+      } catch (err) {
+        console.error('Error loading account detail:', err);
+        toast({
+          title: 'Failed to load detail',
+          description: err.message,
+          status: 'error',
+          duration: 4000,
+          isClosable: true,
+        });
+      }
     }
     load();
-  }, [accountId]);
-
-  if (!account) return <Text>Loading account…</Text>;
+  }, [account, toast]);
 
   return (
-    <VStack p={4} spacing={6} align="stretch">
-      <Button size="sm" variant="link" onClick={() => navigate('/accounts')}>
+    <Box>
+      <Button mb={4} onClick={onBack}>
         ← Back to Wallets
       </Button>
 
-      <Box>
-        <Text fontSize="2xl" fontWeight="bold">{account.name}</Text>
-        <Text fontSize="lg" color="gray.500">${account.balance.toFixed(2)}</Text>
+      <Heading size="md" mb={2}>
+        {account.name}
+      </Heading>
+      <Text mb={4} fontSize="lg">
+        Current Balance: ${account.balance.toFixed(2)}
+      </Text>
+
+      <Box mb={6}>
+        <Text fontWeight="bold" mb={2}>
+          Balance Over Time
+        </Text>
+        <LineChart width={600} height={200} data={running}>
+          <XAxis dataKey="date" />
+          <YAxis />
+          <Tooltip />
+          <Line
+            type="monotone"
+            dataKey="balance"
+            stroke="#3182CE"
+            dot={false}
+          />
+        </LineChart>
       </Box>
 
-      <Box h="200px">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartData}>
-            <XAxis dataKey="date" />
-            <YAxis />
-            <Tooltip />
-            <Line type="monotone" dataKey="balance" stroke="#3182ce" />
-          </LineChart>
-        </ResponsiveContainer>
+      <Box mb={6}>
+        <Text fontWeight="bold" mb={2}>
+          Transactions
+        </Text>
+        <VStack spacing={3} align="stretch">
+          {transactions.map((t) => (
+            <HStack key={t.id} justify="space-between">
+              <Text>{new Date(t.created_at).toLocaleDateString()}</Text>
+              <Text
+                color={t.transaction_type === 'income' ? 'green.500' : 'red.500'}
+              >
+                {t.transaction_type === 'income' ? '+' : '-'}$
+                {t.amount.toFixed(2)}
+              </Text>
+            </HStack>
+          ))}
+        </VStack>
       </Box>
 
-      <HStack justify="space-between">
-        <Text fontWeight="bold">Transactions</Text>
-        <Button size="sm" onClick={() => {/* open NewTx modal prefilled to this account */}}>
-          + New Tx
-        </Button>
-      </HStack>
-      <VStack spacing={2} align="stretch">
-        {transactions.map(t => (
-          <HStack key={t.id} justify="space-between">
-            <Text>{new Date(t.date).toLocaleDateString()}</Text>
-            <Text>{t.description}</Text>
-            <Text fontFamily="mono">${t.amount.toFixed(2)}</Text>
-          </HStack>
-        ))}
-      </VStack>
-    </VStack>
+      <Button colorScheme="blue" mb={4}>
+        Budget for this account
+      </Button>
+    </Box>
   );
 }
