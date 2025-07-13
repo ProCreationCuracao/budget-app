@@ -1,123 +1,91 @@
+// src/components/AccountDetail.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Box,
   Heading,
-  Button,
-  Text,
   VStack,
   HStack,
-  useToast,
+  Text,
+  Divider,
+  Spinner,
+  useColorModeValue
 } from '@chakra-ui/react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-} from 'recharts';
 import { supabase } from '../supabaseClient';
 
-export default function AccountDetail({ account, onBack }) {
-  const toast = useToast();
+export default function AccountDetail({ account }) {
   const [transactions, setTransactions] = useState([]);
-  const [running, setRunning] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // load this account’s transactions
   useEffect(() => {
-    async function load() {
-      try {
-        const {
-          data: { user },
-          error: userErr,
-        } = await supabase.auth.getUser();
-        if (userErr) throw userErr;
+    if (!account) return;
+    setLoading(true);
+    supabase
+      .from('transactions')
+      .select('*')
+      .eq('account_id', account.id)
+      .order('transaction_date', { ascending: true })
+      .then(({ data, error }) => {
+        if (error) console.error(error);
+        else setTransactions(data);
+      })
+      .finally(() => setLoading(false));
+  }, [account]);
 
-        const { data, error } = await supabase
-          .from('transactions')
-          .select('id, amount, transaction_type, created_at')
-          .eq('user_id', user.id)
-          .eq('account_id', account.id)
-          .order('created_at', { ascending: true });
-        if (error) throw error;
+  // Group transactions by date (YYYY-MM-DD)
+  const byDate = transactions.reduce((acc, tx) => {
+    const d = tx.transaction_date.split('T')[0];
+    if (!acc[d]) acc[d] = [];
+    acc[d].push(tx);
+    return acc;
+  }, {});
 
-        setTransactions(data || []);
+  // Compute running balances
+  let runningBal = account.opening_balance;
+  const withRunning = transactions.map(tx => {
+    runningBal += tx.amount * (tx.type === 'income' ? 1 : -1);
+    return { ...tx, runningBalance: runningBal };
+  });
 
-        // build running balance over time
-        let bal = account.opening_balance;
-        const run = data.map((t) => {
-          bal += t.transaction_type === 'income' ? t.amount : -t.amount;
-          return {
-            date: t.created_at.slice(0, 10),
-            balance: bal,
-          };
-        });
-        setRunning(run);
-      } catch (err) {
-        console.error('Error loading account detail:', err);
-        toast({
-          title: 'Failed to load detail',
-          description: err.message,
-          status: 'error',
-          duration: 4000,
-          isClosable: true,
-        });
-      }
-    }
-    load();
-  }, [account, toast]);
+  const bg = useColorModeValue('white', 'gray.700');
+  const headerBg = useColorModeValue('gray.100', 'gray.600');
+
+  if (!account) return <Text>Select an account to see details.</Text>;
+  if (loading) return <Spinner />;
 
   return (
-    <Box>
-      <Button mb={4} onClick={onBack}>
-        ← Back to Wallets
-      </Button>
+    <Box p={4} bg={bg} borderRadius="md" shadow="sm">
+      <Heading size="md" mb={4}>{account.name}</Heading>
+      <Text mb={6}>Opening balance: ${account.opening_balance.toFixed(2)}</Text>
 
-      <Heading size="md" mb={2}>
-        {account.name}
-      </Heading>
-      <Text mb={4} fontSize="lg">
-        Current Balance: ${account.balance.toFixed(2)}
-      </Text>
-
-      <Box mb={6}>
-        <Text fontWeight="bold" mb={2}>
-          Balance Over Time
-        </Text>
-        <LineChart width={600} height={200} data={running}>
-          <XAxis dataKey="date" />
-          <YAxis />
-          <Tooltip />
-          <Line
-            type="monotone"
-            dataKey="balance"
-            stroke="#3182CE"
-            dot={false}
-          />
-        </LineChart>
-      </Box>
-
-      <Box mb={6}>
-        <Text fontWeight="bold" mb={2}>
-          Transactions
-        </Text>
-        <VStack spacing={3} align="stretch">
-          {transactions.map((t) => (
-            <HStack key={t.id} justify="space-between">
-              <Text>{new Date(t.created_at).toLocaleDateString()}</Text>
-              <Text
-                color={t.transaction_type === 'income' ? 'green.500' : 'red.500'}
-              >
-                {t.transaction_type === 'income' ? '+' : '-'}$
-                {t.amount.toFixed(2)}
-              </Text>
-            </HStack>
-          ))}
-        </VStack>
-      </Box>
-
-      <Button colorScheme="blue" mb={4}>
-        Budget for this account
-      </Button>
+      {Object.entries(byDate).map(([date, txs]) => (
+        <Box key={date} mb={4}>
+          <Box bg={headerBg} p={2} borderRadius="sm">
+            <Text fontWeight="bold">{date}</Text>
+          </Box>
+          <VStack align="stretch" mt={2}>
+            {txs.map(tx => {
+              const r = withRunning.find(w => w.id === tx.id);
+              return (
+                <Box
+                  key={tx.id}
+                  p={3}
+                  bg={useColorModeValue('gray.50', 'gray.600')}
+                  borderRadius="sm"
+                >
+                  <HStack justify="space-between">
+                    <Text>{tx.description || tx.category}</Text>
+                    <Text color={tx.type === 'income' ? 'green.500' : 'red.500'}>
+                      {tx.type === 'income' ? '+' : '-'}${Math.abs(tx.amount).toFixed(2)}
+                    </Text>
+                    <Text fontSize="sm">Bal: ${r.runningBalance.toFixed(2)}</Text>
+                  </HStack>
+                </Box>
+              );
+            })}
+          </VStack>
+          <Divider my={4} />
+        </Box>
+      ))}
     </Box>
   );
 }

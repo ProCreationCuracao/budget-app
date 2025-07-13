@@ -1,84 +1,45 @@
-// src/components/Transactions.jsx
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Heading,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  Text,
-  Spinner
+  Box, Heading, VStack, HStack, Text, Select
 } from '@chakra-ui/react';
+import { supabase } from '../supabaseClient';
 
-export default function Transactions({ user, refreshTransactions }) {
-  const [transactions, setTransactions] = useState(null);
-  const [loading, setLoading] = useState(false);
+export default function Transactions() {
+  const [transactions, setTransactions] = useState([]);
+  const [filter, setFilter] = useState('all');
 
   useEffect(() => {
-    if (!user) return;
-
-    setLoading(true);
-    fetch('/.netlify/functions/get-transactions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: user.id })
-    })
-      .then(res => res.json())
-      .then(data => {
-        setTransactions(data);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error('Error fetching transactions:', err);
-        setLoading(false);
-      });
-  }, [user, refreshTransactions]);
-
-  // guard unauthenticated
-
-
-  // loading state
-  if (loading || transactions === null) {
-    return (
-      <Box p={4} textAlign="center">
-        <Spinner size="lg" />
-      </Box>
-    );
-  }
+    async function load() {
+      let q = supabase.from('transactions').select('*').order('created_at', { ascending: false });
+      if (filter !== 'all') {
+        q = q.eq('category', filter);
+      }
+      const { data } = await q;
+      setTransactions(data || []);
+    }
+    load();
+  }, [filter]);
 
   return (
-    <Box p={4}>
-      <Heading mb={4}>Recent Transactions</Heading>
-
-      {transactions.length === 0 ? (
-        <Text>No transactions yet.</Text>
-      ) : (
-        <Table variant="simple">
-          <Thead>
-            <Tr>
-              <Th>Date</Th>
-              <Th>Type</Th>
-              <Th isNumeric>Amount</Th>
-              <Th>Category</Th>
-              <Th>Description</Th>
-            </Tr>
-          </Thead>
-          <Tbody>
-            {transactions.map(tx => (
-              <Tr key={tx.id}>
-                <Td>{new Date(tx.created_at).toLocaleDateString()}</Td>
-                <Td>{tx.transaction_type}</Td>
-                <Td isNumeric>${parseFloat(tx.amount).toFixed(2)}</Td>
-                <Td>{tx.category || '—'}</Td>
-                <Td>{tx.note || '—'}</Td>
-              </Tr>
-            ))}
-          </Tbody>
-        </Table>
-      )}
+    <Box>
+      <HStack justify="space-between" mb={4}>
+        <Heading size="lg">Transactions</Heading>
+        <Select w="200px" value={filter} onChange={e => setFilter(e.target.value)}>
+          <option value="all">All</option>
+          {/* You could dynamically load categories from supabase too */}
+          <option value="Groceries">Groceries</option>
+          <option value="Salary">Salary</option>
+        </Select>
+      </HStack>
+      <VStack spacing={2} align="stretch">
+        {transactions.map(tx => (
+          <HStack key={tx.id} justify="space-between" p={2} bg="gray.50" borderRadius="md">
+            <Text>{new Date(tx.created_at).toLocaleDateString()}</Text>
+            <Text>{tx.category}</Text>
+            <Text>${tx.amount.toFixed(2)}</Text>
+          </HStack>
+        ))}
+      </VStack>
     </Box>
   );
 }

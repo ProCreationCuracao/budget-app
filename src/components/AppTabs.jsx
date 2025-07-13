@@ -1,70 +1,28 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Tabs,
-  TabList,
-  TabPanels,
-  Tab,
-  TabPanel
-} from '@chakra-ui/react';
-
+import React from 'react';
+import { Tabs, TabList, TabPanels, Tab, TabPanel, Box } from '@chakra-ui/react';
 import Dashboard from './Dashboard';
 import Account from './Account';
 import Transactions from './Transactions';
-import Settings from './Settings';
 import QuickAdd from './QuickAdd';
+import Settings from './Settings';
 
 export default function AppTabs() {
-  const [transactions, setTransactions] = useState([]);
-
-  // Fetch all transactions
-  const fetchTransactions = async () => {
-    try {
-      const res = await fetch('/.netlify/functions/get-transactions');
-      const data = await res.json();
-      setTransactions(data);
-    } catch (err) {
-      console.error('Error loading transactions:', err);
-    }
-  };
-
-  useEffect(() => {
-    fetchTransactions();
-  }, []);
-
   return (
-    <Tabs variant="enclosed" isFitted>
+    <Tabs isFitted variant="enclosed">
       <TabList mb="1em">
         <Tab>Dashboard</Tab>
-        <Tab>Account</Tab>
+        <Tab>Wallets</Tab>
         <Tab>Transactions</Tab>
+        <Tab>Quick Add</Tab>
         <Tab>Settings</Tab>
       </TabList>
 
-      {/* QuickAdd lives above the panels so it's always available */}
-      <QuickAdd onSuccess={fetchTransactions} />
-
       <TabPanels>
-        <TabPanel>
-          <Dashboard
-            transactions={transactions}
-            refreshTransactions={fetchTransactions}
-          />
-        </TabPanel>
-        <TabPanel>
-          <Account
-            transactions={transactions}
-            refreshTransactions={fetchTransactions}
-          />
-        </TabPanel>
-        <TabPanel>
-          <Transactions
-            transactions={transactions}
-            refreshTransactions={fetchTransactions}
-          />
-        </TabPanel>
-        <TabPanel>
-          <Settings />
-        </TabPanel>
+        <TabPanel><Dashboard /></TabPanel>
+        <TabPanel><Account /></TabPanel>
+        <TabPanel><Transactions /></TabPanel>
+        <TabPanel><QuickAdd /></TabPanel>
+        <TabPanel><Settings /></TabPanel>
       </TabPanels>
     </Tabs>
   );

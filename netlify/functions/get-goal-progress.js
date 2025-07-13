@@ -1,14 +1,14 @@
-const { createClient } = require('@supabase/supabase-js')
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-)
+const { supabase } = require('../../src/supabaseClient');
 
-exports.handler = async () => {
+exports.handler = async (event) => {
+  // returns sum of progress per goal
   const { data, error } = await supabase
-    .from('transactions')
+    .from('goal_progress')
     .select('goal_id, sum(amount) as progress')
-    .group('goal_id')
-  if (error) return { statusCode: 500, body: JSON.stringify(error) }
-  return { statusCode: 200, body: JSON.stringify(data) }
-}
+    .group('goal_id');
+
+  if (error) {
+    return { statusCode: 500, body: JSON.stringify(error) };
+  }
+  return { statusCode: 200, body: JSON.stringify(data) };
+};

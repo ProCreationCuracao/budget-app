@@ -1,9 +1,8 @@
 // src/components/QuickAdd.jsx
-
 import React, { useState, useEffect } from 'react';
 import {
+  Button,
   IconButton,
-  useDisclosure,
   Modal,
   ModalOverlay,
   ModalContent,
@@ -11,188 +10,213 @@ import {
   ModalCloseButton,
   ModalBody,
   ModalFooter,
-  Button,
-  Select,
-  Input,
   FormControl,
   FormLabel,
+  Input,
+  Select,
+  Textarea,
+  useDisclosure,
+  useToast,
   VStack,
   HStack,
-  Textarea
+  Box
 } from '@chakra-ui/react';
-import { AiOutlinePlus } from 'react-icons/ai';
+import { FiPlus } from 'react-icons/fi';
 import { supabase } from '../supabaseClient';
 
-export default function QuickAdd({ onTransactionCreated }) {
+export default function QuickAdd({ onDone }) {
   const { isOpen, onOpen, onClose } = useDisclosure();
+  const toast = useToast();
+
+  // Form state
   const [type, setType] = useState('expense');
   const [accounts, setAccounts] = useState([]);
-  const [accountFrom, setAccountFrom] = useState('');
-  const [accountTo, setAccountTo] = useState('');
-  const [amount, setAmount] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const [categories, setCategories] = useState([]);
   const [category, setCategory] = useState('');
   const [label, setLabel] = useState('');
+  const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [paymentType, setPaymentType] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [loading, setLoading] = useState(false);
 
+  // Load accounts & categories
   useEffect(() => {
-    // fetch accounts list
     supabase
       .from('accounts')
       .select('id,name')
       .then(({ data }) => setAccounts(data || []));
+    supabase
+      .from('categories')
+      .select('id,name')
+      .then(({ data }) => setCategories(data || []));
   }, []);
 
-  const resetForm = () => {
+  const reset = () => {
     setType('expense');
-    setAccountFrom('');
-    setAccountTo('');
-    setAmount('');
+    setAccountId('');
     setCategory('');
     setLabel('');
+    setAmount('');
     setNote('');
+    setPaymentType('');
+    setPhotoUrl('');
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!accountId || !amount) {
+      toast({ title: 'Account and amount required', status: 'error' });
+      return;
+    }
+    setLoading(true);
     const payload = {
       type,
-      account_from: accountFrom,
-      account_to: type === 'transfer' ? accountTo : null,
+      account_id: accountId,
+      category_id: category || null,
+      label: label || null,
       amount: parseFloat(amount),
-      category,
-      label,
-      note
+      note: note || null,
+      payment_type: paymentType || null,
+      photo_url: photoUrl || null,
+      transaction_date: new Date().toISOString()
     };
-
     const { error } = await supabase
       .from('transactions')
       .insert([payload]);
-
-    if (!error) {
-      resetForm();
-      onClose();
-      onTransactionCreated && onTransactionCreated();
+    setLoading(false);
+    if (error) {
+      toast({ title: 'Error', description: error.message, status: 'error' });
     } else {
-      console.error('QuickAdd error:', error);
+      toast({ title: 'Added!', status: 'success' });
+      reset();
+      onClose();
+      onDone?.();
     }
   };
 
   return (
     <>
       <IconButton
-        aria-label="Quick Add"
-        icon={<AiOutlinePlus />}
-        position="fixed"
-        bottom="6"
-        right="6"
-        colorScheme="yellow"
-        size="lg"
-        borderRadius="full"
+        icon={<FiPlus />}
+        colorScheme="teal"
         onClick={onOpen}
-        zIndex={1000}
+        aria-label="Quick Add"
+        position="fixed"
+        bottom="4"
+        right="4"
+        borderRadius="full"
+        size="lg"
+        boxShadow="md"
       />
-
-      <Modal isOpen={isOpen} onClose={onClose} isCentered>
+      <Modal isOpen={isOpen} onClose={onClose}>
         <ModalOverlay />
         <ModalContent>
-          <ModalHeader>Quick Add</ModalHeader>
+          <ModalHeader>Quick Add Transaction</ModalHeader>
           <ModalCloseButton />
-          <ModalBody>
-            <VStack spacing={4}>
-              <FormControl>
-                <FormLabel>Type</FormLabel>
-                <Select value={type} onChange={e => setType(e.target.value)}>
-                  <option value="expense">Expense</option>
-                  <option value="income">Income</option>
-                  <option value="transfer">Transfer</option>
-                </Select>
-              </FormControl>
-
-              <FormControl>
-                <FormLabel>From Account</FormLabel>
-                <Select
-                  value={accountFrom}
-                  onChange={e => setAccountFrom(e.target.value)}
-                  placeholder="Select account"
-                >
-                  {accounts.map(acc => (
-                    <option key={acc.id} value={acc.id}>
-                      {acc.name}
-                    </option>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {type === 'transfer' && (
+          <form onSubmit={handleSubmit}>
+            <ModalBody>
+              <VStack spacing={4}>
                 <FormControl>
-                  <FormLabel>To Account</FormLabel>
-                  <Select
-                    value={accountTo}
-                    onChange={e => setAccountTo(e.target.value)}
-                    placeholder="Select destination"
-                  >
-                    {accounts
-                      .filter(acc => acc.id !== accountFrom)
-                      .map(acc => (
-                        <option key={acc.id} value={acc.id}>
-                          {acc.name}
-                        </option>
-                      ))}
+                  <FormLabel>Type</FormLabel>
+                  <Select value={type} onChange={e => setType(e.target.value)}>
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                    <option value="transfer">Transfer</option>
                   </Select>
                 </FormControl>
-              )}
 
-              <FormControl>
-                <FormLabel>Amount</FormLabel>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={amount}
-                  onChange={e => setAmount(e.target.value)}
-                  placeholder="0.00"
-                />
-              </FormControl>
+                <FormControl isRequired>
+                  <FormLabel>Account</FormLabel>
+                  <Select
+                    placeholder="Select account"
+                    value={accountId}
+                    onChange={e => setAccountId(e.target.value)}
+                  >
+                    {accounts.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </Select>
+                </FormControl>
 
-              <FormControl>
-                <FormLabel>Category</FormLabel>
-                <Input
-                  value={category}
-                  onChange={e => setCategory(e.target.value)}
-                  placeholder="e.g. Groceries"
-                />
-              </FormControl>
+                <HStack width="100%" spacing={2}>
+                  <FormControl flex={1}>
+                    <FormLabel>Category</FormLabel>
+                    <Select
+                      placeholder="Category"
+                      value={category}
+                      onChange={e => setCategory(e.target.value)}
+                    >
+                      {categories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl flex={1}>
+                    <FormLabel>Label</FormLabel>
+                    <Input
+                      placeholder="e.g. Walmart"
+                      value={label}
+                      onChange={e => setLabel(e.target.value)}
+                    />
+                  </FormControl>
+                </HStack>
 
-              <FormControl>
-                <FormLabel>Label</FormLabel>
-                <Input
-                  value={label}
-                  onChange={e => setLabel(e.target.value)}
-                  placeholder="e.g. Walmart"
-                />
-              </FormControl>
+                <FormControl isRequired>
+                  <FormLabel>Amount</FormLabel>
+                  <Input
+                    placeholder="0.00"
+                    type="number"
+                    step="0.01"
+                    value={amount}
+                    onChange={e => setAmount(e.target.value)}
+                  />
+                </FormControl>
 
-              <FormControl>
-                <FormLabel>Note</FormLabel>
-                <Textarea
-                  value={note}
-                  onChange={e => setNote(e.target.value)}
-                  placeholder="Add a note (optional)"
-                />
-              </FormControl>
-            </VStack>
-          </ModalBody>
+                <FormControl>
+                  <FormLabel>Note</FormLabel>
+                  <Textarea
+                    placeholder="Any comments…"
+                    value={note}
+                    onChange={e => setNote(e.target.value)}
+                  />
+                </FormControl>
 
-          <ModalFooter>
-            <HStack spacing={2}>
-              <Button onClick={onClose}>Cancel</Button>
+                <FormControl>
+                  <FormLabel>Payment Type</FormLabel>
+                  <Select
+                    placeholder="Cash, Card, etc."
+                    value={paymentType}
+                    onChange={e => setPaymentType(e.target.value)}
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                    <option value="online">Online</option>
+                  </Select>
+                </FormControl>
+
+                <FormControl>
+                  <FormLabel>Photo URL</FormLabel>
+                  <Input
+                    placeholder="Image URL"
+                    value={photoUrl}
+                    onChange={e => setPhotoUrl(e.target.value)}
+                  />
+                </FormControl>
+              </VStack>
+            </ModalBody>
+            <ModalFooter>
+              <Button onClick={onClose} mr={3}>Cancel</Button>
               <Button
-                colorScheme="yellow"
-                onClick={handleSubmit}
-                isDisabled={!accountFrom || !amount}
+                colorScheme="teal"
+                type="submit"
+                isLoading={loading}
               >
                 Add
               </Button>
-            </HStack>
-          </ModalFooter>
+            </ModalFooter>
+          </form>
         </ModalContent>
       </Modal>
     </>

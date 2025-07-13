@@ -6,9 +6,14 @@ import {
   HStack,
   VStack,
   Text,
-  Select,
-  useToast,
+  Button,
+  ButtonGroup,
+  Menu,
+  MenuButton,
+  MenuList,
+  MenuItem,
   useColorModeValue,
+  Select
 } from '@chakra-ui/react';
 import { Responsive, WidthProvider } from 'react-grid-layout';
 import {
@@ -20,19 +25,16 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
+  Legend
 } from 'recharts';
 import { supabase } from '../supabaseClient';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
-
 const ResponsiveGridLayout = WidthProvider(Responsive);
 
 export default function Dashboard() {
-  const toast = useToast();
-
-  // Date‐range state
+  // Date-range state
   const [range, setRange] = useState('monthly');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState(new Date().toISOString());
@@ -40,231 +42,187 @@ export default function Dashboard() {
   // Data state
   const [transactions, setTransactions] = useState([]);
 
-  // Widget visibility
+  // Widget visibility toggles
   const [widgets, setWidgets] = useState({
     summary: true,
     trend: true,
     categories: true,
-    recent: true,
+    recent: true
   });
 
-  // Recompute startDate whenever range changes
-  useEffect(() => {
-    const now = new Date();
-    let start;
-    switch (range) {
-      case 'daily':
-        start = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        break;
-      case 'weekly':
-        start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'yearly':
-        start = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-        break;
-      case 'monthly':
-      default:
-        start = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
-    setStartDate(start.toISOString());
-  }, [range]);
-
-  // Load data whenever date‐window changes
+  // Load transactions once
   useEffect(() => {
     async function load() {
-      try {
-        // get logged‐in user
-        const {
-          data: { user },
-          error: userErr,
-        } = await supabase.auth.getUser();
-        if (userErr) throw userErr;
-        // fetch transactions in window
-        const { data, error: txErr } = await supabase
-          .from('transactions')
-          .select('id, amount, transaction_type, category, created_at')
-          .eq('user_id', user.id)
-          .gte('created_at', startDate)
-          .lte('created_at', endDate);
-        if (txErr) throw txErr;
-        setTransactions(data || []);
-      } catch (err) {
-        console.error('Error loading dashboard:', err);
-        console.error('Full error:', JSON.stringify(err, null, 2));
-        toast({
-          title: 'Failed to load data',
-          description: err.message ?? 'Unknown error',
-          status: 'error',
-          duration: 5000,
-          isClosable: true,
-        });
-      }
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error) setTransactions(data);
+      else console.error(error);
     }
     load();
-  }, [startDate, endDate, toast]);
+  }, []);
 
-  // prepare summary numbers
-  const income = transactions
-    .filter((t) => t.transaction_type === 'income')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const expense = transactions
-    .filter((t) => t.transaction_type === 'expense')
-    .reduce((sum, t) => sum + t.amount, 0);
-  const net = income - expense;
+  // Filter by date range
+  const filtered = transactions.filter(t => {
+    const d = new Date(t.created_at).toISOString();
+    return d >= startDate && d <= endDate;
+  });
 
-  // prepare trend data grouping by day
+  // --- 1) Summary widget data ---
+  const totalIncome = filtered
+    .filter(t => t.amount > 0)
+    .reduce((sum, t) => sum + t.amount, 0);
+  const totalExpense = filtered
+    .filter(t => t.amount < 0)
+    .reduce((sum, t) => sum + Math.abs(t.amount), 0);
+
+  // --- 2) Trend widget data ---
   const trendData = Object.entries(
-    transactions.reduce((acc, t) => {
-      const day = t.created_at.slice(0, 10);
-      acc[day] = (acc[day] || 0) + (t.transaction_type === 'income' ? t.amount : -t.amount);
+    filtered.reduce((acc, t) => {
+      const dateKey = new Date(t.created_at).toISOString().split('T')[0];
+      acc[dateKey] = (acc[dateKey] || 0) + t.amount;
       return acc;
     }, {})
   )
-    .sort(([a], [b]) => (a > b ? 1 : -1))
-    .map(([date, value]) => ({ date, value }));
+    .map(([date, total]) => ({ date, total }))
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  // prepare category pie
-  const categoryMap = transactions.reduce((acc, t) => {
-    acc[t.category] = (acc[t.category] || 0) + (t.transaction_type === 'expense' ? t.amount : 0);
-    return acc;
-  }, {});
-  const categoryData = Object.entries(categoryMap).map(([name, value]) => ({ name, value }));
+  // --- 3) Category widget data ---
+  const categoryData = Object.entries(
+    filtered.reduce((acc, t) => {
+      acc[t.category] = (acc[t.category] || 0) + Math.abs(t.amount);
+      return acc;
+    }, {})
+  ).map(([name, value]) => ({ name, value }));
 
-  // recent 5
-  const recent = [...transactions]
-    .sort((a, b) => (a.created_at > b.created_at ? -1 : 1))
-    .slice(0, 5);
+  // layout for grid
+  const layout = [
+    { i: 'summary', x: 0, y: 0, w: 4, h: 2 },
+    { i: 'trend', x: 4, y: 0, w: 8, h: 2 },
+    { i: 'categories', x: 0, y: 2, w: 6, h: 2 },
+    { i: 'recent', x: 6, y: 2, w: 6, h: 2 }
+  ];
 
-  // grid layout
-  const layouts = {
-    lg: [
-      { i: 'summary', x: 0, y: 0, w: 3, h: 1 },
-      { i: 'trend', x: 3, y: 0, w: 9, h: 3 },
-      { i: 'categories', x: 0, y: 1, w: 6, h: 3 },
-      { i: 'recent', x: 6, y: 1, w: 6, h: 3 },
-    ],
-  };
-
-  const bg = useColorModeValue('white', 'gray.700');
-  const border = useColorModeValue('gray.200', 'gray.600');
+  // colors
+  const bg = useColorModeValue('white', 'gray.800');
 
   return (
     <Box p={4}>
-      <HStack mb={4} justify="space-between">
-        <Heading size="lg">Dashboard</Heading>
-        <Select w="150px" value={range} onChange={(e) => setRange(e.target.value)}>
+      <Heading mb={4}>Dashboard</Heading>
+
+      {/* Date & widget toggles */}
+      <HStack mb={4} spacing={4}>
+        <Select
+          w="200px"
+          value={range}
+          onChange={e => setRange(e.target.value)}
+        >
           <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
           <option value="monthly">Monthly</option>
           <option value="yearly">Yearly</option>
         </Select>
+        <ButtonGroup>
+          {Object.keys(widgets).map(key => (
+            <Button
+              key={key}
+              size="sm"
+              variant={widgets[key] ? 'solid' : 'outline'}
+              onClick={() =>
+                setWidgets(w => ({ ...w, [key]: !w[key] }))
+              }
+            >
+              {key[0].toUpperCase() + key.slice(1)}
+            </Button>
+          ))}
+        </ButtonGroup>
       </HStack>
 
       <ResponsiveGridLayout
         className="layout"
-        layouts={layouts}
-        breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480 }}
-        cols={{ lg: 12, md: 10, sm: 6, xs: 4 }}
-        rowHeight={80}
+        layouts={{ lg: layout }}
+        breakpoints={{ lg: 1200 }}
+        cols={{ lg: 12 }}
+        rowHeight={100}
         isResizable
         isDraggable
       >
         {widgets.summary && (
-          <Box
-            key="summary"
-            bg={bg}
-            border="1px"
-            borderColor={border}
-            borderRadius="md"
-            p={4}
-          >
-            <VStack spacing={2} align="stretch">
-              <Text fontWeight="bold">Income</Text>
-              <Text>${income.toFixed(2)}</Text>
-              <Text fontWeight="bold">Expenses</Text>
-              <Text>${expense.toFixed(2)}</Text>
-              <Text fontWeight="bold">Net</Text>
-              <Text>${net.toFixed(2)}</Text>
-            </VStack>
+          <Box key="summary" bg={bg} p={4} borderRadius="md">
+            <Heading size="md" mb={2}>Summary</Heading>
+            <HStack justify="space-between">
+              <VStack>
+                <Text fontSize="lg" fontWeight="bold">
+                  ${totalIncome.toFixed(2)}
+                </Text>
+                <Text>Income</Text>
+              </VStack>
+              <VStack>
+                <Text fontSize="lg" fontWeight="bold">
+                  ${totalExpense.toFixed(2)}
+                </Text>
+                <Text>Expense</Text>
+              </VStack>
+            </HStack>
           </Box>
         )}
 
         {widgets.trend && (
-          <Box
-            key="trend"
-            bg={bg}
-            border="1px"
-            borderColor={border}
-            borderRadius="md"
-            p={4}
-          >
-            <Text fontWeight="bold" mb={2}>
-              Balance Trend
-            </Text>
-            <LineChart width={800} height={200} data={trendData}>
+          <Box key="trend" bg={bg} p={4} borderRadius="md">
+            <Heading size="md" mb={2}>Trend ({range})</Heading>
+            <LineChart width={600} height={200} data={trendData}>
               <XAxis dataKey="date" />
               <YAxis />
               <Tooltip />
-              <Line type="monotone" dataKey="value" stroke="#3182CE" />
+              <Line type="monotone" dataKey="total" stroke="#3182CE" />
             </LineChart>
           </Box>
         )}
 
         {widgets.categories && (
-          <Box
-            key="categories"
-            bg={bg}
-            border="1px"
-            borderColor={border}
-            borderRadius="md"
-            p={4}
-          >
-            <Text fontWeight="bold" mb={2}>
-              Top Expense Categories
-            </Text>
+          <Box key="categories" bg={bg} p={4} borderRadius="md">
+            <Heading size="md" mb={2}>By Category</Heading>
             <PieChart width={400} height={200}>
               <Pie
                 data={categoryData}
                 dataKey="value"
                 nameKey="name"
                 outerRadius={80}
+                fill="#E53E3E"
                 label
               >
                 {categoryData.map((_, idx) => (
-                  <Cell key={idx} fill={['#3182CE', '#D53F8C', '#ECC94B'][idx % 3]} />
+                  <Cell
+                    key={idx}
+                    fill={
+                      ['#3182CE', '#D53F8C', '#ECC94B', '#38A169'][idx % 4]
+                    }
+                  />
                 ))}
               </Pie>
-              <Legend verticalAlign="bottom" height={36} />
+              <Legend />
+              <Tooltip />
             </PieChart>
           </Box>
         )}
 
         {widgets.recent && (
-          <Box
-            key="recent"
-            bg={bg}
-            border="1px"
-            borderColor={border}
-            borderRadius="md"
-            p={4}
-          >
-            <Text fontWeight="bold" mb={2}>
-              Recent Transactions
-            </Text>
-            <VStack spacing={2} align="stretch">
-              {recent.map((t) => (
-                <HStack key={t.id} justify="space-between">
-                  <Text>{new Date(t.created_at).toLocaleDateString()}</Text>
-                  <Text>{t.category}</Text>
-                  <Text
-                    color={t.transaction_type === 'income' ? 'green.500' : 'red.500'}
-                  >
-                    {t.transaction_type === 'income' ? '+' : '-'}$
-                    {t.amount.toFixed(2)}
-                  </Text>
+          <Box key="recent" bg={bg} p={4} borderRadius="md" overflowY="auto">
+            <Heading size="md" mb={2}>Recent Transactions</Heading>
+            <VStack align="stretch" spacing={2}>
+              {filtered.slice(0, 5).map(tx => (
+                <HStack key={tx.id} justify="space-between">
+                  <Text>{new Date(tx.created_at).toLocaleDateString()}</Text>
+                  <Text>{tx.category}</Text>
+                  <Text>${tx.amount.toFixed(2)}</Text>
                 </HStack>
               ))}
             </VStack>
+            {filtered.length > 5 && (
+              <Button mt={2} size="sm" onClick={() => {/* expand logic */}}>
+                Show more…
+              </Button>
+            )}
           </Box>
         )}
       </ResponsiveGridLayout>

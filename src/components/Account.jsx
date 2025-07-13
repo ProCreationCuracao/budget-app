@@ -1,3 +1,4 @@
+// src/components/Account.jsx
 import React, { useState, useEffect } from 'react';
 import {
   Box,
@@ -10,70 +11,79 @@ import {
   CircularProgress,
   CircularProgressLabel
 } from '@chakra-ui/react';
+import { supabase } from '../supabaseClient';
 
-export default function Account({ user, refreshTransactions }) {
-  // ————— Hooks always at top —————
+export default function Account({ user }) {
   const [accounts, setAccounts] = useState([]);
   const [goals, setGoals] = useState([]);
   const [goalName, setGoalName] = useState('');
   const [goalTarget, setGoalTarget] = useState('');
 
-  // only fetch when we have a user
+  // Load accounts for this user
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
+    async function loadAccounts() {
+      const { data, error } = await supabase
+        .from('accounts')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('Error loading accounts:', error);
+      } else {
+        setAccounts(data);
+      }
+    }
+    loadAccounts();
+  }, [user]);
 
-    // fetch accounts for this user
-    fetch('/.netlify/functions/get-accounts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: user.id })
-    })
-      .then(res => res.json())
-      .then(data => setAccounts(data))
-      .catch(console.error);
+  // Load savings goals
+  useEffect(() => {
+    if (!user?.id) return;
+    async function loadGoals() {
+      const { data, error } = await supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('Error loading goals:', error);
+      } else {
+        setGoals(data);
+      }
+    }
+    loadGoals();
+  }, [user]);
 
-    // fetch savings goals
-    fetch('/.netlify/functions/get-goals')
-      .then(res => res.json())
-      .then(data => setGoals(data.filter(g => g.user_id === user.id)))
-      .catch(console.error);
-  }, [user, refreshTransactions]);
-
-  // add a new goal
+  // Add a new goal
   const addGoal = async e => {
     e.preventDefault();
-    if (!user) return;
-
-    await fetch('/.netlify/functions/create-goal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: user.id,
-        name: goalName,
-        target_amount: parseFloat(goalTarget)
-      })
-    });
-
-    setGoalName('');
-    setGoalTarget('');
-    // refresh goals list
-    const res = await fetch('/.netlify/functions/get-goals');
-    const data = await res.json();
-    setGoals(data.filter(g => g.user_id === user.id));
+    const target = parseFloat(goalTarget) || 0;
+    const { error } = await supabase
+      .from('goals')
+      .insert([{ user_id: user.id, name: goalName, target_amount: target }]);
+    if (error) console.error('Error creating goal:', error);
+    else {
+      setGoalName('');
+      setGoalTarget('');
+      // reload
+      const { data } = await supabase
+        .from('goals')
+        .select('*')
+        .eq('user_id', user.id);
+      setGoals(data || []);
+    }
   };
 
-  // ————— guard for unauthenticated —————
-
-  // ————— main UI —————
   return (
     <Box p={4}>
-      <Heading mb={4}>Accounts & Savings Goals</Heading>
+      <Heading mb={6}>Account & Savings Goals</Heading>
 
       {/* Savings Goals */}
-      <Box mb={6}>
+      <Box mb={8}>
         <Heading size="md" mb={4}>Savings Goals</Heading>
         <Box as="form" onSubmit={addGoal} mb={6}>
-          <HStack spacing={4}>
+          <HStack spacing={3}>
             <Input
               placeholder="Goal Name"
               value={goalName}
@@ -91,19 +101,23 @@ export default function Account({ user, refreshTransactions }) {
             <Button type="submit" colorScheme="blue">Add Goal</Button>
           </HStack>
         </Box>
-
-        <HStack spacing={8} align="center">
+        <HStack spacing={6} align="start">
           {goals.map(g => (
             <VStack key={g.id} spacing={2}>
               <CircularProgress
-                value={0} // TODO: wire up actual progress
-                size="100px"
+                value={Math.min(
+                  100,
+                  (g.current_amount ?? 0) / (g.target_amount || 1) * 100
+                )}
+                size="80px"
                 thickness="8px"
                 color="green.400"
               >
                 <CircularProgressLabel>
-                  {g.name}
-                  <Text fontSize="sm">${g.target_amount.toFixed(2)}</Text>
+                  <Text fontSize="sm" fontWeight="bold">{g.name}</Text>
+                  <Text fontSize="xs">
+                    ${((g.current_amount ?? 0).toFixed(2))} / ${((g.target_amount ?? 0).toFixed(2))}
+                  </Text>
                 </CircularProgressLabel>
               </CircularProgress>
             </VStack>
@@ -111,14 +125,28 @@ export default function Account({ user, refreshTransactions }) {
         </HStack>
       </Box>
 
-      {/* Accounts List */}
-      <VStack spacing={3} align="stretch">
-        {accounts.map(a => (
-          <Box key={a.id} p={3} bg="gray.100" borderRadius="md">
-            <Text fontWeight="bold">{a.name}</Text>
-            <Text>${parseFloat(a.balance).toFixed(2)}</Text>
+      {/* Account List */}
+      <VStack spacing={4} align="stretch">
+        {accounts.map(acc => (
+          <Box
+            key={acc.id}
+            p={4}
+            bg="gray.50"
+            borderRadius="md"
+            boxShadow="sm"
+          >
+            <HStack justify="space-between">
+              <Text fontWeight="bold">{acc.name}</Text>
+              <Text>${((acc.balance ?? 0).toFixed(2))}</Text>
+            </HStack>
+            <Text fontSize="sm" color="gray.500">
+              {new Date(acc.created_at).toLocaleDateString()}
+            </Text>
           </Box>
         ))}
+        {accounts.length === 0 && (
+          <Text color="gray.500">No accounts yet.</Text>
+        )}
       </VStack>
     </Box>
   );

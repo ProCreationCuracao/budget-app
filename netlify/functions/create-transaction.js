@@ -1,16 +1,15 @@
-const { createClient } = require('@supabase/supabase-js');
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const { supabase } = require('../../src/supabaseClient');
 
-exports.handler = async ({ body }) => {
-  const { user_id, amount, description } = JSON.parse(body);
+exports.handler = async (event) => {
+  const body = JSON.parse(event.body);
+  const { account_id, amount, category, label, note } = body;
+
   const { data, error } = await supabase
     .from('transactions')
-    .insert({ user_id, amount, description });
+    .insert([{ account_id, amount, category, label, note }]);
+
   if (error) {
-    return { statusCode: 500, body: JSON.stringify({ error }) };
+    return { statusCode: 500, body: JSON.stringify(error) };
   }
-  return { statusCode: 200, body: JSON.stringify(data) };
+  return { statusCode: 200, body: JSON.stringify(data[0]) };
 };
