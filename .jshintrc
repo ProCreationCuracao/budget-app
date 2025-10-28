@@ -1,7 +1,0 @@
-{
-  "esversion": 6,
-  "laxcomma": true,
-  "undef": false,
-  "unused": false,
-  "predef": ["React","ReactDOM"]
-}

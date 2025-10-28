@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/fx/refresh-all", "schedule": "0 4 * * *" }
+  ]
+}
